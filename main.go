@@ -1,26 +1,30 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 )
 
 func main() {
-	listener, err := net.Listen("tcp", ":7676")
+	flagPort := flag.String("port", "9000", "Porta TCP para escutar")
+	flag.Parse()
+	tcpPort := ":" + *flagPort
+
+	listener, err := net.Listen("tcp", tcpPort)
 	if err != nil {
-		fmt.Println("Erro ao iniciar servidor: ", err)
+		fmt.Println("Erro ao iniciar servidor:", err)
 		return
 	}
 	defer listener.Close()
-	
-	fmt.Println("[SERVIDOR] Escutando na porta :7676...")
+
+	fmt.Println("[SERVIDOR] Escutando na porta", tcpPort)
 	for {
 		conection, err := listener.Accept()
 		if err != nil {
-			fmt.Println("Erro ao aceitar conexão: ", err)
+			fmt.Println("Erro ao aceitar conexão:", err)
 			continue
 		}
-		fmt.Println("vou lidar com o cliente...")
 		go HandleClient(conection)
 
 	}
