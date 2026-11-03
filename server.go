@@ -2,15 +2,16 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"html"
+	"io"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"errors"
-	"io"
-	"net/url"
 )
 
 type HttpRequest struct {
@@ -21,6 +22,7 @@ type HttpRequest struct {
 	ContentLength int
 	BodyReader    *bufio.Reader
 }
+
 var ErrAccessDenied = errors.New("acesso negado")
 
 func HandleClient(connection net.Conn) {
@@ -28,7 +30,6 @@ func HandleClient(connection net.Conn) {
 	defer fmt.Println("[CONEXÃO] Encerrada", connection.RemoteAddr())
 
 	fmt.Println("[CONEXÃO] Nova conexão de", connection.RemoteAddr())
-
 
 	reader := bufio.NewReader(connection)
 
@@ -46,7 +47,7 @@ func HandleClient(connection net.Conn) {
 			switch {
 			case errors.Is(err, os.ErrNotExist):
 				fmt.Println("[404] Recurso não encontrado:", req.Path)
-				pagina_404,err := os.ReadFile("./public/404.html")
+				pagina_404, err := os.ReadFile("./public/404.html")
 				if err != nil {
 					fmt.Println(err)
 					basicErrorResponse(connection, "500 Internal Server Error", "")
@@ -64,7 +65,7 @@ func HandleClient(connection net.Conn) {
 			}
 			return
 		}
-	
+
 	case "POST":
 		// Implementação do POST
 		body := make([]byte, req.ContentLength)
@@ -75,11 +76,23 @@ func HandleClient(connection net.Conn) {
 			return
 		}
 		fmt.Printf("[POST] Body bruto (%d bytes): %s\n", n, string(body))
-		pares  := strings.Split(string(body), "&")
-		fmt.Println(pares)
+		var pagina strings.Builder
+		pagina.WriteString(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Dados Recebidos</title>
+</head>
+<body>
+    <h1>Dados Recebidos</h1>
+    <ul>
+`)
+		pares := strings.Split(string(body), "&")
 		for par := range pares {
-			nome, valor, encontrou := strings.Cut(pares[par], "=")
-			fmt.Println(nome, valor, encontrou )
+			if pares[par] == "" {
+				continue
+			}
+			nome, valor, _ := strings.Cut(pares[par], "=")
 			valor_decodificado, err := url.QueryUnescape(valor)
 			if err != nil {
 				fmt.Println("Erro ao decodificar valor:", err)
@@ -92,10 +105,21 @@ func HandleClient(connection net.Conn) {
 				basicErrorResponse(connection, "400 Bad Request", "")
 				return
 			}
-			
+
 			fmt.Println("[POST] Campo:", nome_decodificado, "=", valor_decodificado)
+			fmt.Fprintf(&pagina, "        <li><strong>%s:</strong> %s</li>\n",
+				html.EscapeString(nome_decodificado), html.EscapeString(valor_decodificado))
 		}
-		basicErrorResponse(connection, "200 OK", "")
+		pagina.WriteString(`    </ul>
+    <a href="/">Voltar para a página inicial</a>
+</body>
+</html>
+`)
+		resposta := pagina.String()
+		if err := basicErrorResponse(connection, "200 OK", resposta); err != nil {
+			return
+		}
+		fmt.Printf("[RESPONSE] Resposta dinâmica enviada (text/html, %d bytes)\n", len(resposta))
 	default:
 		fmt.Println("Método não suportado:", req.Method)
 		basicErrorResponse(connection, "405 Method Not Allowed", "")
@@ -208,13 +232,13 @@ func serveFile(connection net.Conn, req HttpRequest) error {
 		return err
 	}
 	publicAbs = publicAbs + string(filepath.Separator)
-	
+
 	boolFilePath := strings.HasPrefix(fileAbs, publicAbs)
 	if !boolFilePath {
 		fmt.Println("Tentativa de acesso a arquivo fora do diretório public:", fileAbs)
 		return ErrAccessDenied
 	}
-	
+
 	println("booleano de verificação de caminho - Debbug: " + strconv.FormatBool(boolFilePath))
 	println("as 3 Variaveis de caminho - Debbug: " + "\npublicAbs: " + publicAbs + "\nfileAbs: " + fileAbs + "\ncleanPath: " + cleanPath)
 	fileBytes, err := os.ReadFile(fileAbs)
@@ -236,16 +260,20 @@ func serveFile(connection net.Conn, req HttpRequest) error {
 	if err != nil {
 		fmt.Println("Erro ao enviar dados para o cliente:", err)
 		return err
-	}else {
+	} else {
 		fmt.Printf("[ARQUIVO] Servindo %s (%s, %s bytes)\n", req.Path, contentType, fileLength)
 	}
 	return nil
 }
 
-func basicErrorResponse(connection net.Conn, status string, body string) {
+func basicErrorResponse(connection net.Conn, status string, body string) error {
 	message := fmt.Sprintf("HTTP/1.1 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n%s", status, len(body), body)
-	_, err := connection.Write([]byte(message))
+	n, err := connection.Write([]byte(message))
+	if err == nil && n != len(message) {
+		err = io.ErrShortWrite
+	}
 	if err != nil {
 		fmt.Println("Erro ao enviar resposta de erro para o cliente:", err)
 	}
+	return err
 }
