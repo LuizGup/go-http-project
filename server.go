@@ -43,8 +43,14 @@ func HandleClient(connection net.Conn) {
 		if err != nil {
 			switch {
 			case errors.Is(err, os.ErrNotExist):
-				fmt.Println("Arquivo não encontrado:", req.Path)
-				basicErrorResponse(connection, "404 Not Found", "")
+				fmt.Println("[404] Recurso não encontrado:", req.Path)
+				pagina_404,err := os.ReadFile("./public/404.html")
+				if err != nil {
+					fmt.Println(err)
+					basicErrorResponse(connection, "500 Internal Server Error", "")
+					return
+				}
+				basicErrorResponse(connection, "404 Not Found", string(pagina_404))
 
 			case errors.Is(err, ErrAccessDenied) || errors.Is(err, os.ErrPermission):
 				fmt.Println("Acesso negado:", req.Path)
@@ -207,7 +213,7 @@ func serveFile(connection net.Conn, req HttpRequest) error {
 }
 
 func basicErrorResponse(connection net.Conn, status string, body string) {
-	message := fmt.Sprintf("HTTP/1.1 %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", status, len(body), body)
+	message := fmt.Sprintf("HTTP/1.1 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n%s", status, len(body), body)
 	_, err := connection.Write([]byte(message))
 	if err != nil {
 		fmt.Println("Erro ao enviar resposta de erro para o cliente:", err)
