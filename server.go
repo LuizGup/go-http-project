@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"errors"
+	"io"
+	"net/url"
 )
 
 type HttpRequest struct {
@@ -62,10 +64,38 @@ func HandleClient(connection net.Conn) {
 			}
 			return
 		}
+	
 	case "POST":
 		// Implementação do POST
-		fmt.Println("POST request recebido, mas não implementado.")
-		basicErrorResponse(connection, "405 Method Not Allowed", "")
+		body := make([]byte, req.ContentLength)
+		n, err := io.ReadFull(req.BodyReader, body)
+		if err != nil {
+			fmt.Println("Erro ao ler corpo da requisição:", err)
+			basicErrorResponse(connection, "400 Bad Request", "")
+			return
+		}
+		fmt.Printf("[POST] Body bruto (%d bytes): %s\n", n, string(body))
+		pares  := strings.Split(string(body), "&")
+		fmt.Println(pares)
+		for par := range pares {
+			nome, valor, encontrou := strings.Cut(pares[par], "=")
+			fmt.Println(nome, valor, encontrou )
+			valor_decodificado, err := url.QueryUnescape(valor)
+			if err != nil {
+				fmt.Println("Erro ao decodificar valor:", err)
+				basicErrorResponse(connection, "400 Bad Request", "")
+				return
+			}
+			nome_decodificado, err := url.QueryUnescape(nome)
+			if err != nil {
+				fmt.Println("Erro ao decodificar nome:", err)
+				basicErrorResponse(connection, "400 Bad Request", "")
+				return
+			}
+			
+			fmt.Println("[POST] Campo:", nome_decodificado, "=", valor_decodificado)
+		}
+		basicErrorResponse(connection, "200 OK", "")
 	default:
 		fmt.Println("Método não suportado:", req.Method)
 		basicErrorResponse(connection, "405 Method Not Allowed", "")
